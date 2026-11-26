@@ -1,5 +1,5 @@
 {
-  "name": "opencode-mogick-auth",
+  "name": "magpie-mogick",
   "version": "0.1.0",
   "description": "OpenCode & Magpie provider plugin for Mogick",
   "type": "module",

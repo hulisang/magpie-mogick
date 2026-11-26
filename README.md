@@ -1,4 +1,4 @@
-# opencode-mogick-auth
+# magpie-mogick
 
 OpenCode & Magpie provider plugin for **Mogick** (`mogick`).
 
@@ -7,7 +7,7 @@ OpenCode & Magpie provider plugin for **Mogick** (`mogick`).
 使用 OAuth 2.0 设备授权码流登录 Mogick（`https://login.tongyuan.cc/authentication/oauth2`）：
 
 ```bash
-magpie plugin add ./magpie-plugin
+magpie plugin add ./magpie-mogick
 magpie plugin login mogick
 ```
 
