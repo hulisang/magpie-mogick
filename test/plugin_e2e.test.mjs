@@ -21,7 +21,6 @@ describe("MogickAuthPlugin end-to-end", () => {
       fold_reasoning_effort: true,
       strip_mogick_args: true,
       strip_reasoning: true,
-      claim_daily_reward: true,
     };
 
     const requests = [];
@@ -150,7 +149,12 @@ describe("MogickAuthPlugin end-to-end", () => {
       },
     );
 
-    // 1. config
+    // 1. config & Magpie UI options (claim_daily_reward hidden in favor of native auth.checkin)
+    expect(hooks.auth.options.map((o) => o.key)).toEqual([
+      "fold_reasoning_effort",
+      "strip_mogick_args",
+      "strip_reasoning",
+    ]);
     const cfg = {};
     await hooks.config(cfg);
     expect(cfg.provider.mogick.npm).toBe("@ai-sdk/openai-compatible");
@@ -173,7 +177,7 @@ describe("MogickAuthPlugin end-to-end", () => {
     const models = await hooks.provider.models({ models: cfg.provider.mogick.models }, { auth: storedAuth });
     expect(models["deepseek-v4-flash"].variants).toEqual({ low: {}, high: {} });
 
-    // 4. chat.headers + loader.fetch (stream + 401 refresh retry + daily reward)
+    // 4. chat.headers + loader.fetch (stream + 401 refresh retry; no balance claim on chat in Magpie)
     const loaderOpts = await hooks.auth.loader(async () => storedAuth);
     const hdrOut = { headers: {} };
     await hooks["chat.headers"]({ model: { providerID: "mogick" }, sessionID: "magpie-sess-1" }, hdrOut);
@@ -222,10 +226,69 @@ describe("MogickAuthPlugin end-to-end", () => {
     const nonStreamJson = await nonStreamRes.json();
     expect(nonStreamJson.choices[0].message.reasoning_content).toBe("chain");
 
+    // In Magpie host mode, chat should not pre-query /user/balance
+    expect(requests.filter((r) => r.url.includes("/user/balance")).length).toBe(0);
+
     // 6. usage & checkin
     const usage = await hooks.auth.usage(async () => storedAuth);
     expect(usage.balance).toBe("42.5 credits");
-    const checkin = await hooks.auth.checkin(async () => storedAuth);
-    expect(checkin.outcome).toBe("done"); // already triggered by claim_daily_reward on first chat
+    const checkin1 = await hooks.auth.checkin(async () => storedAuth);
+    expect(checkin1.outcome).toBe("claimed");
+    expect(checkin1.credit).toBe(2);
+    const checkin2 = await hooks.auth.checkin(async () => storedAuth);
+    expect(checkin2.outcome).toBe("done");
+  });
+
+  test("non-Magpie (OpenCode) host auto-claims daily reward before first chat unless disabled", async () => {
+    const jwt = makeJwt({ sub: "u_200", nickname: "OpenCodeUser", exp: 2000000000 });
+    const storedAuth = {
+      type: "oauth",
+      access: jwt,
+      refresh: "rt_oc",
+      expires: Date.UTC(2026, 10, 25, 14, 0, 0),
+      uid: "u_200",
+    };
+
+    const runWithPluginOptions = async (pluginOptions) => {
+      let balanceCalls = 0;
+      const fetchFn = async (url) => {
+        if (url.includes("/user/balance")) {
+          balanceCalls++;
+          return new Response(
+            JSON.stringify({
+              code: 0,
+              data: { user_id: "u_200", available_amount: "10", free_balance: "2", plan_balance: "8" },
+            }),
+            { status: 200 },
+          );
+        }
+        return new Response(
+          JSON.stringify({
+            model: "deepseek-v4-flash",
+            choices: [{ index: 0, message: { role: "assistant", content: "ok" } }],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      };
+
+      const hooks = await MogickAuthPlugin(
+        {},
+        {
+          fetchFn,
+          nowFn: () => Date.UTC(2026, 10, 25, 12, 0, 0),
+          ...pluginOptions,
+        },
+      );
+      const loaderOpts = await hooks.auth.loader(async () => storedAuth);
+      const body = JSON.stringify({ model: "deepseek-v4-flash", stream: false, messages: [{ role: "user", content: "hi" }] });
+      await loaderOpts.fetch(`${loaderOpts.baseURL}/chat/completions`, { method: "POST", body });
+      await loaderOpts.fetch(`${loaderOpts.baseURL}/chat/completions`, { method: "POST", body });
+      return balanceCalls;
+    };
+
+    // Default enabled in non-Magpie host, deduplicated per UTC day
+    expect(await runWithPluginOptions({})).toBe(1);
+    // Can be explicitly disabled via pluginOptions
+    expect(await runWithPluginOptions({ claim_daily_reward: false })).toBe(0);
   });
 });

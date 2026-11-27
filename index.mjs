@@ -54,6 +54,7 @@ export const MogickAuthPlugin = async (input = {}, pluginOptions = {}) => {
   const modelCatalog = new ModelCatalog({ nowFn });
   const dailyRewardTracker = new DailyRewardTracker({ nowFn });
   const inflightRefresh = new Map();
+  const isMagpieHost = Boolean(input?.magpie) || input?.project?.id === "magpie";
 
   function readOption(key) {
     if (typeof input?.magpie?.option === "function") {
@@ -63,6 +64,15 @@ export const MogickAuthPlugin = async (input = {}, pluginOptions = {}) => {
       return pluginOptions[key];
     }
     return Boolean(DEFAULT_OPTIONS[key]);
+  }
+
+  function shouldClaimDailyRewardOnChat() {
+    // In Magpie, daily reward check-in is handled natively by auth.checkin ("高级 → 每日签到").
+    if (isMagpieHost) return false;
+    if (typeof pluginOptions.claim_daily_reward === "boolean") {
+      return pluginOptions.claim_daily_reward;
+    }
+    return Boolean(DEFAULT_OPTIONS.claim_daily_reward);
   }
 
   async function emitLog(level, message) {
@@ -312,7 +322,7 @@ export const MogickAuthPlugin = async (input = {}, pluginOptions = {}) => {
             const foldEffort = readOption("fold_reasoning_effort");
             const stripArgs = readOption("strip_mogick_args");
             const stripReason = readOption("strip_reasoning");
-            const claimReward = readOption("claim_daily_reward");
+            const claimReward = shouldClaimDailyRewardOnChat();
 
             const headers = new Headers(reqInput instanceof Request ? reqInput.headers : undefined);
             if (reqInit?.headers) {
