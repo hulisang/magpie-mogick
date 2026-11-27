@@ -18,6 +18,10 @@
     "mogick"
   ],
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hulisang/magpie-mogick.git"
+  },
   "magpie": {
     "name": "Mogick",
     "summary": {
